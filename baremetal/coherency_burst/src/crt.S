@@ -16,7 +16,6 @@ _start:
     j fail;                 \
     j fail;                 \
     j fail;                 \
-.align 4                ;\
 1:                         \
     csrr x1, mepc;          \
     csrr x1, mcause;        \
@@ -28,377 +27,68 @@ _start:
     trap_handle    \
     trap_setup     \
 
+.globl _start
+_start:
 
-    li x31, 10
-redoAll:
-    nop
-    nop
-    nop
-    csrr x1, minstret
-    nop
-    nop
-    nop
-    csrr x1, minstret
-#if __riscv_xlen == 32
-    csrr x1, minstreth
-#endif
-    li x1, 0x12345678
-    csrw minstret,x1
-    csrr x1, minstret
-#if __riscv_xlen == 32
-    csrr x1, minstreth
-#endif
-#if __riscv_xlen == 32
-    li x1, 0xAABBCCDD
-    csrw minstreth,x1
-    csrr x1, minstret
-    csrr x1, minstreth
-#endif
+#define PTR x27
+#define REPEAT_COUNTER x28
+#define HART_COUNT x29
+#define HART_MASK x30
+#define HART_ID x31
 
-    csrr x1, mcycle
-    csrr x1, mcycle
+  li HART_COUNT, 2 //UPDATE ME
+  li HART_MASK, 1  //UPDATE ME
+  csrr HART_ID, mhartid
 
-    csrwi mhpmevent3, ICACHE_REFILL
-    csrwi mhpmevent4, DCACHE_REFILL
-    csrwi mhpmevent5, DCACHE_WRITEBACK
-    csrwi mhpmevent6, BRANCH_MISS
-
-    li x3, PUTC
-    li x4, PUT_HEX
-    li x5, '-'
-    li x6, '\n'
-    sw x5, 0(x3)
-    sw x6, 0(x3)
-
-    csrr x1, mhpmcounter3; sw x1, 0(x4); sw x6, 0(x3)
-    csrr x1, mhpmcounter4; sw x1, 0(x4); sw x6, 0(x3)
-    csrr x1, mhpmcounter5; sw x1, 0(x4); sw x6, 0(x3)
-    csrr x1, mhpmcounter6; sw x1, 0(x4); sw x6, 0(x3)
-
-    csrr x1, mstatus
-    csrr x1, mtvec
-    csrr x1, mepc
-    csrr x1, mtval
-    li x1, 0x1234FFFF
-    csrw mscratch, x1
-    csrr x1, mscratch
-    csrci mscratch, 3
-    csrr x1, mscratch
-
-    trap_setup
-    li x1, MIE_MEIE
-    csrw mie, x1
-    li x1, MSTATUS_MIE
-    csrw mstatus, x1
-    li x1, MACHINE_EXTERNAL_INTERRUPT_CTRL
-    li x2, 1
-    sw x2, 0(x1)   //Interrupt test
-    delay_long();
-    trap_handle
-    li x1, MACHINE_EXTERNAL_INTERRUPT_CTRL
-    sw x0, 0(x1)   //Interrupt test
-
-    trap_setup
-    .word 0  //test decoding error
-    trap_handle
-
-    trap_setup
-    ecall          // ecall test
-    trap_handle
-
-    trap_setup
-    ebreak          // ebreak test
-    trap_handle
-
-    trap_setup
-    csrw 0xFFF, x0 // Trap unimplemented csrw
-    trap_handle
-
-    trap_setup
-    csrr x1, 0xFFF  // Trap unimplemented csrr
-    trap_handle
+//io  -> iow  : OK
+//ior -> r    : Need to hold load from executing
+//w   -> w    : OK
+//w   -> ior  : Need to wait for SQ writeback
+//r   -> iow  : OK
 
 
-    trap_setup // Trap unimplemented csrrw
-    csrrw x1, 0xFFF, x1
-    trap_handle
+
+//Test amo with random timings
+  li REPEAT_COUNTER, 100000
+  la PTR, sharedE
+  la x20, data
+  li x21, 8*1024-4
+  la x22, RANDOM
+  li x23, 1
+loop:
+  addi REPEAT_COUNTER, REPEAT_COUNTER, -1
+  beqz REPEAT_COUNTER, pass
+
+  //random address in x1
+  lw x1, 0(x22)
+  and x1, x1, x21
+  add x1, x1, x20
+  lw x2, 0(x22)
+  and x2, x2, x21
+  add x2, x2, x20
+  lw x3, 0(x22)
+  and x3, x3, x21
+  add x3, x3, x20
+  lw x4, 0(x22)
+  and x4, x4, x21
+  add x4, x4, x20
+
+  lw x12, 0(x2)
+  amoadd.w  x1,x23,(x1)
+  lw x13, 0(x3)
+  addi x13, x13, 1
+  sw x13, 0(x3)
+  lr.w	x14,(x4)
+  addi x14, x14, 1
+  sc.w	x14,x14,(x4)
+  j loop
 
 
-    trap_setup
-    csrw mhartid, x1  // Trap read only csr
-    trap_handle
-
-    // Unaligned loads
-    trap_setup
-    la x1, data
-    lw x1, 1(x1)
-    trap_handle
-
-    trap_setup
-    la x1, data
-    lw x1, 2(x1)
-    trap_handle
-
-    trap_setup
-    la x1, data
-    lw x1, 3(x1)
-    trap_handle
-
-    trap_setup
-    la x1, data
-    lh x1, 1(x1)
-    trap_handle
-
-    trap_setup
-    la x1, BASE
-    lw x1, 1(x1)
-    trap_handle
-
-    // Unaligned stores
-    trap_setup
-    la x1, data
-    sw x1, 1(x1)
-    trap_handle
-
-    trap_setup
-    la x1, data
-    sw x1, 2(x1)
-    trap_handle
-
-    trap_setup
-    la x1, data
-    sw x1, 3(x1)
-    trap_handle
-
-    trap_setup
-    la x1, data
-    sh x1, 1(x1)
-    trap_handle
-
-    trap_setup
-    la x1, BASE
-    sw x1, 1(x1)
-    trap_handle
-
-    //Check no store side effects
-    la x1, data
-    lw x2, 0(x1)
-    lw x2, 4(x1)
-
-    // JALR clear bit 0
-    la x1, 2f+1
-    jalr x1, x1
-    nop
-2:  nop
-
-
-    trap_setup
-    li x1, MM_FAULT_ADDRESS
-    lw x1, 0(x1) //load fault
-    trap_handle
-
-    trap_setup
-    li x1, IO_FAULT_ADDRESS
-    lw x1, 0(x1) //mmio load fault
-    trap_handle
-
-    trap_setup
-    li x1, IO_FAULT_ADDRESS
-    sw x1, 0(x1) //mmio store fault
-    trap_handle
-
-    trap_setup
-    li x1, MM_FAULT_ADDRESS
-    jalr x1 //fetch fault
-    trap_handle
-
-
-// mret test
-    la x1, 1f
-    csrw mepc, x1
-    la x1, 0x1800 //MPP
-    csrw mstatus, x1
-    mret
-    j fail
-    nop
-    nop
-1:
-    csrr x1, mepc
-
-
-//TODO
-/*
-#ifndef RVC
-    trap_setup
-    la x1, data+2
-    jalr x1, x1
-    trap_handle
-#endif*/
-
-    addi x31, x31, -1
-    bnez x31, redoAll
-    j pass
-
-/*
-// CSR tests
-    li x31, 10
-t0:
-    li x10, 0x11223344
-    li x11, 0x22334455
-    li x12, 0x33445566
-    li x13, 0x44556677
-    la x14, data
-    csrw mscratch, x10
-    csrw sscratch, x11
-    csrr x1, mscratch
-    csrr x2, sscratch
-    csrrw x3, mscratch, x12
-    lw x4, 0(x14)
-    csrrw x3, mscratch, x4
-    csrr x5, mscratch
-
-
-    addi x31, x31, -1
-    bnez x31, t0
-    j pass
-*/
-/*
-// linked list chain
-    li x31, 1000
-    la x1, data
-i0:
-    addi x2, x1, 4
-    sw x2, 0(x1)
-    mv x1, x2
-    addi x31, x31, -1
-    bnez x31, i0
-    sw x0, 0(x1)
-
-stats:
-    la x1, data
-j0:
-    lw x1, 0(x1)
-    bnez x1, j0
-    j pass*/
-
-/*
-
-//Store -> load hazard prediction
-#define delay() nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop
-    li x31, 100
-    la x30, data
-    sw x30, 4(x30)
-j0:
-    delay()
-    lw x1, 4(x30)
-    sw x31, 0(x1)
-    lw x2, 0(x30)
-    addi x31, x31, -1
-    bnez x31, j0
-    j pass
-
-*/
-
-/*
-#define delay() nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop
-    li x31, 100
-j0:
-    delay()
-    call func
-    delay()
-    addi x31, x31, -1
-    bnez x31, j0
-    j pass
-
-func:
-    delay()
-    ret
-
-*/
-
-/*
-// Easy to learn loop
-#define delay() nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop;nop
-    li x31, 100
-j0:
-    delay()
-    andi x1, x31, 3
-    bnez x1, j1
-    delay()
-j1:
-    delay()
-    addi x31, x31, -1
-    bnez x31, j0
-*/
-
-
-//More branch prediction tests
-/*
-    li x1, 1
-    nop
-    nop
-    beq x0, x0, a1
-a1:
-    beq x0, x0, a2
-    nop
-a2:
-    beq x0, x0, a3
-    nop
-    nop
-a6:
-    beq x0, x0, a7
-    nop
-    nop
-a5:
-    beq x0, x0, a6
-    nop
-    nop
-a4:
-    beq x0, x0, a5
-    nop
-a3:
-    beq x0, x0, a4
-    
-a7:
-    nop
-    nop
-    beq x0, x1, b1
-    j b1
-b1:
-    beq x0, x1, b2
-    j b2
-    nop
-b2:
-    beq x0, x1, b3
-    j b3
-    nop
-    nop
-b6:
-    beq x0, x1, b7
-    j b7
-    nop
-    nop
-b5:
-    beq x0, x1, b6
-    j b6
-    nop
-    nop
-b4:
-    beq x0, x1, b5
-    j b5
-    nop
-b3:
-    beq x0, x1, b4
-    j b4
-
-b7:*/
 
 pass:
-    nop
-
+  j pass
 fail:
-    nop
-
+  j fail
 
 
 delay:
@@ -476,7 +166,58 @@ delay:
     nop
     ret
 
-.align 8
+.align 12
+sharedA:
+    .word 0x0
+sharedB:
+    .word 0x0
+    .word 0x0
+sharedC:
+    .word 0x0
+    .word 0x0
+sharedD:
+    .word 0x0
+    .word 0x0
+sharedE:
+    .word 0x0
+    .word 0x0
+lrsc_lockup_data:
+    .word 0x0
+.align 12
+fenceData:
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+    .word 0x0
+.align 12
 data:
     .word 0x27e91b60
     .word 0xa656bbbb
@@ -991,3 +732,5 @@ data:
     .word 0xf16f1650
     .word 0xea196a7e
 
+floatOne:
+    .word 0x3f800000
